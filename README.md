@@ -4,6 +4,17 @@ An open-source desktop utility for students at the Technical University of Denma
 
 ---
 
+## Operating System Compatibility & Call for Contributors
+
+- **Current Support: Windows 10 & 11 Only**  
+  As the author primarily uses Windows for daily academic work, the application currently targets the Windows platform. It leverages native Windows APIs (such as Microsoft Edge WebView2 runtime for seamless SSO authentication and Windows DPAPI for session encryption).
+- **macOS & Linux Support (Currently Unavailable)**  
+  Because of the Windows-specific security and webview bindings, the application does not run natively out-of-the-box on Unix-like operating systems (macOS or Linux).
+- **Want to help port to macOS / Linux?**  
+  If you are a macOS or Linux user wanting to make this work on your OS, **you are warmly invited to contribute!** Feel free to open an issue, submit a pull request, or reach out to me directly at **[s263327@dtu.dk](mailto:s263327@dtu.dk)** so we can collaborate and merge cross-platform support into this repository.
+
+---
+
 ## Disclaimer & Responsible Use
 
 - **Independent Project**: This software is developed independently by a student at DTU. It is **not** an official product of, supported by, or affiliated with the Technical University of Denmark (DTU) or D2L Brightspace.
@@ -15,7 +26,7 @@ An open-source desktop utility for students at the Technical University of Denma
 
 ## What the Software Does
 
-1. **In-App Authentication**: Opens a built-in login window powered by the native Microsoft Edge WebView2 runtime. You authenticate directly through DTU's official ADFS / MitID single-sign-on portal with two-factor authentication (2FA).
+1. **In-App Authentication**: Opens a built-in login window powered by the native Microsoft Edge WebView2 runtime. You authenticate directly through DTU's official single-sign-on portal with two-factor authentication (2FA).
 2. **API-Driven Course Discovery**: Communicates directly with Brightspace's Valence REST API on `learn.inside.dtu.dk` to query the list of course offerings you are officially enrolled in.
 3. **Pre-Scan & Differential Comparison**: Traverses the course module structure and compares remote modification timestamps (`LastModifiedDate`) against local files and a local `.sync_manifest.json` state index.
 4. **Selective Download**:

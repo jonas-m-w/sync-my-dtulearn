@@ -6,13 +6,26 @@
 import os
 import sys
 
-# ----------------- PyInstaller + pythonnet / WebView2 DLL Fix -----------------
-# Ensure pythonnet can find the bundled python3xx.dll inside PyInstaller's folder
-if getattr(sys, "frozen", False):
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-    internal_dir = os.path.join(os.path.dirname(sys.executable), "_internal")
-    
-    # Locate python3xx.dll in application directories
+
+# ----------------- Windows Security: Auto-Unblock Downloaded Assemblies -----------------
+# Windows attaches "Zone.Identifier" to files downloaded from the web.
+# .NET CLR / pythonnet refuses to execute assemblies with this marker.
+if sys.platform == "win32" and getattr(sys, "frozen", False):
+    app_root = os.path.dirname(sys.executable)
+    # Recursively remove Zone.Identifier from all files in the app bundle
+    for root, dirs, files in os.walk(app_root):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            zone_stream = f"{fpath}:Zone.Identifier"
+            if os.path.exists(zone_stream):
+                try:
+                    os.remove(zone_stream)
+                except Exception:
+                    pass
+
+    # Ensure pythonnet locates the bundled python runtime dll
+    base_dir = getattr(sys, "_MEIPASS", app_root)
+    internal_dir = os.path.join(app_root, "_internal")
     candidates = [
         os.path.join(base_dir, f"python3{sys.version_info.minor}.dll"),
         os.path.join(internal_dir, f"python3{sys.version_info.minor}.dll"),
@@ -23,6 +36,7 @@ if getattr(sys, "frozen", False):
         if os.path.exists(dll_path):
             os.environ["PYTHONNET_PYDLL"] = dll_path
             break
+
 
 import ctypes
 from ctypes import wintypes

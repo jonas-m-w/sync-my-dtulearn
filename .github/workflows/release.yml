@@ -33,7 +33,7 @@ jobs:
             --hidden-import "clr" `
             --hidden-import "webview.platforms.winforms" `
             --collect-all "webview" `
-            src/sync_dtu_gui.py
+            src/sync-dtu_gui.py
 
       - name: Package Release ZIP
         shell: pwsh

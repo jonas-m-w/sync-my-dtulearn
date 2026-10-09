@@ -42,12 +42,30 @@ Data protection and account safety are core design priorities of this applicatio
 ## How to Download & Run
 
 ### Option 1: Standalone Windows Executable (Recommended)
-*No Python installation required.*
+*No Python installation or terminal commands required.*
 
-1. Go to the repository's **[Releases](../../releases)** page.
+1. Navigate to the repository's **[Releases](../../releases)** page.
 2. Download the latest `DTU_Learn_Sync_Windows.zip` archive.
-3. Extract the ZIP archive to a folder of your choice.
-4. Run **`DTU_Learn_Sync.exe`**.
+3. Extract the ZIP archive to a folder of your choice (e.g. `Desktop` or `Programs`).
+4. Double-click **`DTU_Learn_Sync.exe`** to start.
+
+#### Windows SmartScreen ("Windows protected your PC") on First Launch
+When starting the executable for the first time, Windows Defender may display a blue/red dialog stating *"Windows protected your PC"* with an *"Unknown publisher"* note:
+
+1. Click **More info** on the prompt.
+2. Click **Run anyway**.  
+*(This prompt only appears once on your initial launch).*
+
+#### Why Does This Prompt Appear?
+Microsoft requires developers to purchase commercial Code Signing Certificates from enterprise Certificate Authorities to eliminate the "Unknown Publisher" warning. These certificates cost between **$150 and $450+ annually**—an unreasonable expense for a free, non-profit student project. 
+
+Because this application is built transparently by GitHub Actions without a paid corporate certificate, Windows displays the default reputation warning for new executables.
+
+#### How Can You Verify It Is Safe?
+- **100% Open Source**: Every single line of Python code executed by this application is publicly readable in the [`src/`](src/) directory. No hidden or obfuscated binaries exist.
+- **Auditable via AI / LLMs**: If you are not experienced with reading Python code yourself, you are invited to copy and paste any file from the `src/` folder into an AI tool (such as ChatGPT, Claude, or Gemini) and ask:  
+  *“Does this script contain any malicious behavior, credential stealers, or telemetry?”*
+- **Verifiable Cloud Builds**: The executable is built automatically by GitHub's own clean virtual machines via the public [GitHub Actions workflow](.github/workflows/release.yml), ensuring the binary strictly mirrors the public source code without third-party tampering.
 
 ### Option 2: Run from Source
 *For developers or users who prefer inspecting the code directly.*

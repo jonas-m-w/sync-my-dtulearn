@@ -3,15 +3,34 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License.
 
+import os
+import sys
+
+# ----------------- PyInstaller + pythonnet / WebView2 DLL Fix -----------------
+# Ensure pythonnet can find the bundled python3xx.dll inside PyInstaller's folder
+if getattr(sys, "frozen", False):
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    internal_dir = os.path.join(os.path.dirname(sys.executable), "_internal")
+    
+    # Locate python3xx.dll in application directories
+    candidates = [
+        os.path.join(base_dir, f"python3{sys.version_info.minor}.dll"),
+        os.path.join(internal_dir, f"python3{sys.version_info.minor}.dll"),
+        os.path.join(base_dir, "python3.dll"),
+        os.path.join(internal_dir, "python3.dll"),
+    ]
+    for dll_path in candidates:
+        if os.path.exists(dll_path):
+            os.environ["PYTHONNET_PYDLL"] = dll_path
+            break
+
 import ctypes
 from ctypes import wintypes
 import json
 import multiprocessing
-import os
 import queue
 import re
 import subprocess
-import sys
 import threading
 import time
 import tkinter as tk

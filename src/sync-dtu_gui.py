@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Jonas s263327@dtu.dk
+# Copyright (C) 2026 Jonas Westphal
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License.
@@ -10,6 +10,7 @@ import multiprocessing
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -142,8 +143,9 @@ def get_authenticated_session():
         return None, f"Network error during authentication: {e}"
 
 
-# ----------------- Independent Webview Process -----------------
-def _webview_worker():
+# --- Independent WebView2 Login Popup (PyInstaller Subprocess-Safe) ---
+def run_login_popup():
+    """Runs when the executable or script is launched with --login."""
     window = webview.create_window(
         title="DTU Learn Sign In",
         url="https://learn.inside.dtu.dk/d2l/home",
@@ -185,7 +187,7 @@ class SyncWorker(threading.Thread):
         self.cancel_event = cancel_event
 
     def run(self):
-        failed_items = []  # Detailed failure objects for post-sync prompt
+        failed_items = []
         try:
             self.q.put(("status", "Step 1/4: Authenticating session..."))
             self.q.put(("log", ("[STEP 1] Validating session on DTU Inside...", "normal")))
@@ -467,7 +469,6 @@ class SyncWorker(threading.Thread):
                 self.q.put(("status", "Sync completed."))
                 self.q.put(("done", summary_msg))
 
-                # Launch review dialog if failures occurred
                 if failed_items:
                     self.q.put(("show_failed_dialog", (failed_items, course_dirs)))
 
@@ -553,7 +554,6 @@ class SyncWorker(threading.Thread):
                         cached_mod = cached_entry
                         already_exists = os.path.exists(planned_file)
 
-                    # Skip if up-to-date or flagged by user to ignore
                     if is_user_ignored or (already_exists and cached_mod == remote_mod):
                         up_to_date_count += 1
                     else:
@@ -668,14 +668,12 @@ class FailedItemsDialog(tk.Toplevel):
         )
         lbl_desc.pack(anchor="w", pady=(3, 0))
 
-        # Bulk selection toolbar
         btn_box = ttk.Frame(self, padding="10 5")
         btn_box.pack(fill=tk.X)
 
         ttk.Button(btn_box, text="Select All", command=self.select_all).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(btn_box, text="Deselect All", command=self.deselect_all).pack(side=tk.LEFT)
 
-        # Scrollable list of failed items
         list_container = ttk.Frame(self, padding="10")
         list_container.pack(fill=tk.BOTH, expand=True)
 
@@ -705,7 +703,6 @@ class FailedItemsDialog(tk.Toplevel):
             lbl = tk.Label(item_frame, text=txt_label, fg=color_code, font=("Consolas", 8), anchor="w", justify=tk.LEFT)
             lbl.pack(side=tk.LEFT, fill=tk.X)
 
-        # Bottom actions
         bottom_frame = ttk.Frame(self, padding="10")
         bottom_frame.pack(fill=tk.X)
 
@@ -890,7 +887,6 @@ class DTUSyncApp(tk.Tk):
         self.txt_log = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, font=("Consolas", 9))
         self.txt_log.pack(fill=tk.BOTH, expand=True)
 
-        # Setup Color Tags
         self.txt_log.tag_config("normal", foreground="#1e293b")
         self.txt_log.tag_config("green", foreground="#16a34a")
         self.txt_log.tag_config("orange", foreground="#d97706")
@@ -940,14 +936,21 @@ class DTUSyncApp(tk.Tk):
             self.lbl_auth_badge.config(text="● Not Logged In", fg="#c82333")
 
     def trigger_login(self):
+        """Launches the WebView login popup via an explicit sub-invocation, safe across PyInstaller builds."""
         self.btn_login.config(state=tk.DISABLED)
         self.lbl_status.config(text="Opening sign-in window...")
 
         def runner():
             try:
-                p = multiprocessing.Process(target=_webview_worker)
-                p.start()
-                p.join()
+                # In PyInstaller, sys.executable is DTU_Learn_Sync.exe
+                # In source python, sys.executable is python.exe
+                if getattr(sys, "frozen", False):
+                    cmd = [sys.executable, "--login"]
+                else:
+                    cmd = [sys.executable, os.path.abspath(__file__), "--login"]
+
+                p = subprocess.Popen(cmd)
+                p.wait()  # Wait until the user completes login and the window closes
 
                 session, err = get_authenticated_session()
                 if session:
@@ -1072,5 +1075,10 @@ class DTUSyncApp(tk.Tk):
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    app = DTUSyncApp()
-    app.mainloop()
+
+    # If launched with --login flag, run exclusively as the login window
+    if len(sys.argv) > 1 and sys.argv[1] == "--login":
+        run_login_popup()
+    else:
+        app = DTUSyncApp()
+        app.mainloop()

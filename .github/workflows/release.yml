@@ -29,7 +29,9 @@ jobs:
       - name: Build Standalone Executable
         run: |
           pyinstaller --noconfirm --onedir --windowed `
-            --name "DTU_Learn_Sync" `
+            --name "Sync-My-DTULearn" `
+            --icon "assets/app_icon.ico" `
+            --add-data "assets/app_icon.ico;." `
             --hidden-import "clr" `
             --hidden-import "clr_loader" `
             --hidden-import "pythonnet" `
@@ -42,12 +44,12 @@ jobs:
       - name: Package Release ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/DTU_Learn_Sync/* -DestinationPath DTU_Learn_Sync_Windows.zip
+          Compress-Archive -Path dist/Sync-My-DTULearn/* -DestinationPath Sync-My-DTULearn_Windows.zip
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: DTU_Learn_Sync_Windows.zip
+          files: Sync-My-DTULearn_Windows.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-# DTU Learn Course Synchronizer (`sync-my-dtulearn`)
+# DTU Learn Course Synchronizer (`Sync-My-DTULearn`)
 
 An open-source desktop utility for students at the Technical University of Denmark (DTU) to synchronize and mirror course documents, lecture slides, and exercise files from DTU Learn (`learn.inside.dtu.dk`) to their local disk.
 
@@ -17,7 +17,7 @@ An open-source desktop utility for students at the Technical University of Denma
 
 ## Disclaimer & Responsible Use
 
-- **Independent Project**: This software is developed independently by a student at DTU. It is **not** an official product of, supported by, or affiliated with the Technical University of Denmark (DTU) or D2L Brightspace.
+- **Independent Project**: Sync-My-DTULearn is developed independently by a student at DTU. It is **not** an official product of, supported by, or affiliated with the Technical University of Denmark (DTU) or D2L Brightspace.
 - **No Content Sharing**: This tool **does not host, redistribute, or share course materials**. It functions strictly as a local download assistant that retrieves only the documents and courses that the logged-in student has legitimate, authenticated access to.
 - **Responsible Infrastructure Use**: The application places no continuous or automated background load on DTU’s IT infrastructure. It communicates with DTU Learn servers **solely upon explicit user action** (launching login, clicking *Check Status*, or starting a sync). Automatic periodic polling is deliberately disabled.
 - **Contact & Concerns**: If you are a student, lecturer, or member of DTU IT administration with questions or concerns regarding this tool, please reach out directly to **[s263327@dtu.dk](mailto:s263327@dtu.dk)**.

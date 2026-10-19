@@ -5,14 +5,14 @@
 
 import os
 import sys
-
+import ctypes
+from ctypes import wintypes
 
 # ----------------- Windows Security: Auto-Unblock Downloaded Assemblies -----------------
 # Windows attaches "Zone.Identifier" to files downloaded from the web.
 # .NET CLR / pythonnet refuses to execute assemblies with this marker.
 if sys.platform == "win32" and getattr(sys, "frozen", False):
     app_root = os.path.dirname(sys.executable)
-    # Recursively remove Zone.Identifier from all files in the app bundle
     for root, dirs, files in os.walk(app_root):
         for fname in files:
             fpath = os.path.join(root, fname)
@@ -37,9 +37,13 @@ if sys.platform == "win32" and getattr(sys, "frozen", False):
             os.environ["PYTHONNET_PYDLL"] = dll_path
             break
 
+# Ensure the Windows Taskbar groups and displays the custom icon when run in Python
+if sys.platform == "win32":
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DTU.SyncMyDTULearn.v1")
+    except Exception:
+        pass
 
-import ctypes
-from ctypes import wintypes
 import json
 import multiprocessing
 import queue
@@ -61,6 +65,23 @@ API_VERSIONS = {"lp": "1.45", "le": "1.47"}
 CONFIG_FILE = os.path.expanduser("~/.dtu_sync_config.json")
 ENCRYPTED_SESSION_FILE = os.path.expanduser("~/.dtu_sync_session.bin")
 DEFAULT_TARGET_DIR = os.path.expanduser("~/DTU_Courses")
+
+
+# ----------------- Helper: Find Application Icon -----------------
+def get_app_icon_path():
+    """Locates app_icon.ico whether running from source or frozen PyInstaller bundle."""
+    candidates = [
+        os.path.join(getattr(sys, "_MEIPASS", ""), "app_icon.ico"),
+        os.path.join(os.path.dirname(sys.executable), "app_icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "app_icon.ico"),
+        os.path.join(os.getcwd(), "app_icon.ico"),
+        os.path.join(os.getcwd(), "assets", "app_icon.ico"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
 
 
 # ----------------- SECURITY: Windows DPAPI Encryption -----------------
@@ -112,6 +133,17 @@ def load_session_cookies():
         return json.loads(decrypted.decode("utf-8"))
     except Exception:
         return None
+
+
+# ----------------- Helper: Human-Readable File Sizes -----------------
+def format_size(bytes_num: int) -> str:
+    if bytes_num is None or bytes_num < 0:
+        return "Unknown size"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_num < 1024.0:
+            return f"{bytes_num:.1f} {unit}"
+        bytes_num /= 1024.0
+    return f"{bytes_num:.1f} TB"
 
 
 # ----------------- SECURITY: Path Sandboxing -----------------
@@ -180,7 +212,7 @@ def get_authenticated_session():
 def run_login_popup():
     """Runs when the executable or script is launched with --login."""
     window = webview.create_window(
-        title="DTU Learn Sign In",
+        title="Sync-My-DTULearn v1.1.0 - Sign In",
         url="https://learn.inside.dtu.dk/d2l/home",
         width=850,
         height=720,
@@ -188,23 +220,33 @@ def run_login_popup():
 
     def watcher():
         while True:
-            time.sleep(0.8)
+            time.sleep(1.0)
             try:
                 curr_url = window.get_current_url() or ""
-                if "d2l/home" in curr_url.lower():
+                if "d2l/home" in curr_url.lower() or "inside.dtu.dk" in curr_url.lower():
                     raw_cookies = window.get_cookies()
+                    if not raw_cookies:
+                        continue
+
                     cookie_dict = {}
                     for c in raw_cookies:
-                        for k, morsel in c.items():
-                            cookie_dict[k] = morsel.value
+                        if hasattr(c, "items"):
+                            for k, morsel in c.items():
+                                cookie_dict[k] = morsel.value if hasattr(morsel, "value") else str(morsel)
+                        elif isinstance(c, dict):
+                            name = c.get("name")
+                            val = c.get("value")
+                            if name and val is not None:
+                                cookie_dict[name] = val
 
-                    if "d2lSessionVal" in cookie_dict or any("d2l" in k.lower() for k in cookie_dict):
+                    has_d2l = any("d2l" in k.lower() for k in cookie_dict)
+                    if has_d2l:
                         save_session_cookies(cookie_dict)
                         time.sleep(0.5)
                         window.destroy()
                         break
             except Exception:
-                break
+                pass
 
     threading.Thread(target=watcher, daemon=True).start()
     webview.start(private_mode=False)
@@ -360,6 +402,7 @@ class SyncWorker(threading.Thread):
                 action_label = "Updating" if item["exists"] else "Downloading"
                 self.q.put(("file_progress", idx))
                 self.q.put(("file_downloading", f"[{idx}/{total_pending}] {action_label}: {filename}"))
+                self.q.put(("chunk_progress", (0, 100, "")))
                 self.q.put(("log", (f"  [{idx}/{total_pending}] {action_label}: {filename}", "normal")))
 
                 # --- 1. DIRECT HANDLER: Web Links (.url) ---
@@ -381,6 +424,7 @@ class SyncWorker(threading.Thread):
                             "size": os.path.getsize(shortcut_path),
                         }
                         downloaded_count += 1
+                        self.q.put(("chunk_progress", (100, 100, f"{format_size(os.path.getsize(shortcut_path))} - Saved")))
                         self.q.put(("file_counter_inc", None))
                         self.q.put(("log", (f"  [LINK] Created web shortcut: {os.path.basename(shortcut_path)}", "green")))
                         continue
@@ -424,6 +468,7 @@ class SyncWorker(threading.Thread):
                             "size": os.path.getsize(html_path),
                         }
                         downloaded_count += 1
+                        self.q.put(("chunk_progress", (100, 100, f"{format_size(os.path.getsize(html_path))} - Saved")))
                         self.q.put(("file_counter_inc", None))
                         self.q.put(("log", (f"  [ACTIVITY] Created launcher stub: {os.path.basename(html_path)}", "green")))
                         continue
@@ -541,7 +586,6 @@ class SyncWorker(threading.Thread):
                     raw_url = str(topic.get("Url") or "").strip()
                     topic_type = topic.get("Type")
 
-                    # Identify Web Links (Type 3) and FeedbackFruits / LTI activities
                     is_web_link = (
                         topic_type == 3
                         or raw_url.startswith("http://")
@@ -553,7 +597,6 @@ class SyncWorker(threading.Thread):
                         or "quicklink" in raw_url.lower()
                     )
 
-                    # Assign appropriate extension
                     if is_web_link:
                         ext = ".url"
                     elif is_fbf:
@@ -643,6 +686,16 @@ class SyncWorker(threading.Thread):
                         final_path = safe_join(local_dir, real_name)
                         part_path = f"{final_path}.part"
 
+                total_size = None
+                content_len_header = r.headers.get("Content-Length")
+                if content_len_header and content_len_header.isdigit():
+                    total_size = int(content_len_header)
+
+                downloaded_bytes = 0
+                start_time = time.time()
+                last_update_time = start_time
+                last_downloaded_bytes = 0
+
                 with open(part_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=16384):
                         if self.cancel_event.is_set():
@@ -652,6 +705,28 @@ class SyncWorker(threading.Thread):
                             return False, "Aborted mid-stream", None
                         if chunk:
                             f.write(chunk)
+                            downloaded_bytes += len(chunk)
+
+                            now = time.time()
+                            if now - last_update_time >= 0.15:
+                                delta_time = now - last_update_time
+                                delta_bytes = downloaded_bytes - last_downloaded_bytes
+                                speed_bps = delta_bytes / delta_time if delta_time > 0 else 0
+                                speed_str = f"{format_size(speed_bps)}/s"
+
+                                if total_size and total_size > 0:
+                                    pct = min(100.0, (downloaded_bytes / total_size) * 100)
+                                    status_info = f"{format_size(downloaded_bytes)} / {format_size(total_size)} ({speed_str})"
+                                else:
+                                    pct = 0
+                                    status_info = f"{format_size(downloaded_bytes)} ({speed_str})"
+
+                                self.q.put(("chunk_progress", (pct, 100, status_info)))
+                                last_update_time = now
+                                last_downloaded_bytes = downloaded_bytes
+
+                final_size = format_size(downloaded_bytes)
+                self.q.put(("chunk_progress", (100, 100, f"{final_size} / {final_size} (Done)")))
 
             if os.path.exists(final_path):
                 os.remove(final_path)
@@ -671,11 +746,19 @@ class SyncWorker(threading.Thread):
 class FailedItemsDialog(tk.Toplevel):
     def __init__(self, parent, failed_items, course_dirs):
         super().__init__(parent)
-        self.title("Sync Issues Review")
+        self.title("Sync-My-DTULearn v1.1.0 - Sync Issues Review")
         self.geometry("720x460")
         self.minsize(580, 360)
         self.transient(parent)
         self.grab_set()
+
+        # Apply icon to dialog window
+        icon_path = get_app_icon_path()
+        if icon_path:
+            try:
+                self.iconbitmap(icon_path)
+            except Exception:
+                pass
 
         self.failed_items = failed_items
         self.course_dirs = course_dirs
@@ -793,9 +876,20 @@ class FailedItemsDialog(tk.Toplevel):
 class DTUSyncApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("DTU Learn Course Synchronizer")
-        self.geometry("780x720")
-        self.minsize(680, 540)
+        self.title("Sync-My-DTULearn v1.1.0")
+        self.geometry("780x760")
+        self.minsize(680, 580)
+
+        # Set default application icon for main and child windows
+        icon_path = get_app_icon_path()
+        if icon_path:
+            try:
+                self.iconbitmap(default=icon_path)
+            except Exception:
+                try:
+                    self.iconbitmap(icon_path)
+                except Exception:
+                    pass
 
         self.config_data = load_config()
         self.msg_queue = queue.Queue()
@@ -900,18 +994,30 @@ class DTUSyncApp(tk.Tk):
         )
         self.lbl_pending.pack(anchor="e")
 
-        # 4. Status Progress Bar
+        # 4. Status & Progress Bars (Total + Per-File with Speed)
         status_frame = ttk.Frame(self, padding="10")
         status_frame.pack(fill=tk.X, padx=5)
 
         self.lbl_status = ttk.Label(status_frame, text="Ready.", anchor="w")
-        self.lbl_status.pack(fill=tk.X, pady=(0, 3))
+        self.lbl_status.pack(fill=tk.X, pady=(0, 2))
 
-        self.lbl_current_file = ttk.Label(status_frame, text="", font=("Helvetica", 8, "italic"), foreground="#555")
-        self.lbl_current_file.pack(fill=tk.X, pady=(0, 5))
-
+        # Total Progress Bar
         self.progress = ttk.Progressbar(status_frame, orient=tk.HORIZONTAL, mode="determinate")
-        self.progress.pack(fill=tk.X)
+        self.progress.pack(fill=tk.X, pady=(0, 4))
+
+        # Current File Label & Speed/Size Info
+        file_info_frame = ttk.Frame(status_frame)
+        file_info_frame.pack(fill=tk.X, pady=(2, 2))
+
+        self.lbl_current_file = ttk.Label(file_info_frame, text="", font=("Helvetica", 8, "italic"), foreground="#444")
+        self.lbl_current_file.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.lbl_file_speed = ttk.Label(file_info_frame, text="", font=("Helvetica", 8), foreground="#2563eb")
+        self.lbl_file_speed.pack(side=tk.RIGHT)
+
+        # Single File Progress Bar
+        self.file_progress = ttk.Progressbar(status_frame, orient=tk.HORIZONTAL, mode="determinate")
+        self.file_progress.pack(fill=tk.X)
 
         # 5. Activity Log (with Color Tagging)
         log_frame = ttk.LabelFrame(self, text="Activity Log", padding="10")
@@ -969,21 +1075,20 @@ class DTUSyncApp(tk.Tk):
             self.lbl_auth_badge.config(text="● Not Logged In", fg="#c82333")
 
     def trigger_login(self):
-        """Launches the WebView login popup via an explicit sub-invocation, safe across PyInstaller builds."""
         self.btn_login.config(state=tk.DISABLED)
         self.lbl_status.config(text="Opening sign-in window...")
 
         def runner():
             try:
-                # In PyInstaller, sys.executable is DTU_Learn_Sync.exe
-                # In source python, sys.executable is python.exe
                 if getattr(sys, "frozen", False):
                     cmd = [sys.executable, "--login"]
                 else:
                     cmd = [sys.executable, os.path.abspath(__file__), "--login"]
 
                 p = subprocess.Popen(cmd)
-                p.wait()  # Wait until the user completes login and the window closes
+                p.wait()
+
+                time.sleep(0.4)
 
                 session, err = get_authenticated_session()
                 if session:
@@ -1032,6 +1137,8 @@ class DTUSyncApp(tk.Tk):
         self.lbl_counter.config(text="Files downloaded: 0")
         self.lbl_pending.config(text="Scanning...")
         self.progress["value"] = 0
+        self.file_progress["value"] = 0
+        self.lbl_file_speed.config(text="")
         self.txt_log.delete("1.0", tk.END)
 
         target_dir = self.var_dir.get().strip() or DEFAULT_TARGET_DIR
@@ -1061,6 +1168,13 @@ class DTUSyncApp(tk.Tk):
                     self.lbl_pending.config(text=f"Pending download: {payload}")
                 elif msg_type == "file_downloading":
                     self.lbl_current_file.config(text=payload)
+                    self.lbl_file_speed.config(text="")
+                    self.file_progress["value"] = 0
+                elif msg_type == "chunk_progress":
+                    val, max_val, speed_label = payload
+                    self.file_progress["maximum"] = max_val
+                    self.file_progress["value"] = val
+                    self.lbl_file_speed.config(text=speed_label)
                 elif msg_type == "file_counter_inc":
                     self.total_downloaded += 1
                     self.lbl_counter.config(text=f"Files downloaded: {self.total_downloaded}")
@@ -1094,6 +1208,8 @@ class DTUSyncApp(tk.Tk):
                     self.btn_sync.config(state=tk.NORMAL)
                     self.btn_stop.config(state=tk.DISABLED)
                     self.lbl_current_file.config(text="")
+                    self.lbl_file_speed.config(text="")
+                    self.file_progress["value"] = 0
                 elif msg_type == "done":
                     if payload:
                         messagebox.showinfo("Finished", payload)
@@ -1109,7 +1225,6 @@ class DTUSyncApp(tk.Tk):
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
-    # If launched with --login flag, run exclusively as the login window
     if len(sys.argv) > 1 and sys.argv[1] == "--login":
         run_login_popup()
     else:

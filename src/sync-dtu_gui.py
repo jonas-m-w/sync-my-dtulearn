@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Jonas Westphal
+# Copyright (C) 2026 Jonas
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License.
@@ -212,7 +212,7 @@ def get_authenticated_session():
 def run_login_popup():
     """Runs when the executable or script is launched with --login."""
     window = webview.create_window(
-        title="Sync-My-DTULearn v1.1.0 - Sign In",
+        title="Sync-My-DTULearn v1.1.1 - Sign In",
         url="https://learn.inside.dtu.dk/d2l/home",
         width=850,
         height=720,
@@ -695,9 +695,11 @@ class SyncWorker(threading.Thread):
                 start_time = time.time()
                 last_update_time = start_time
                 last_downloaded_bytes = 0
+                smoothed_speed = 0.0
 
                 with open(part_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=16384):
+                    # Optimized to 128 KB chunks to maximize throughput and minimize CPU overhead
+                    for chunk in r.iter_content(chunk_size=131072):
                         if self.cancel_event.is_set():
                             f.close()
                             if os.path.exists(part_path):
@@ -708,11 +710,15 @@ class SyncWorker(threading.Thread):
                             downloaded_bytes += len(chunk)
 
                             now = time.time()
-                            if now - last_update_time >= 0.15:
+                            # Throttle updates to ~0.2s for clean UI response
+                            if now - last_update_time >= 0.2:
                                 delta_time = now - last_update_time
                                 delta_bytes = downloaded_bytes - last_downloaded_bytes
-                                speed_bps = delta_bytes / delta_time if delta_time > 0 else 0
-                                speed_str = f"{format_size(speed_bps)}/s"
+                                instant_speed = delta_bytes / delta_time if delta_time > 0 else 0
+                                
+                                # Exponential Moving Average to prevent artificial rate-drop readings
+                                smoothed_speed = instant_speed if smoothed_speed == 0 else (0.65 * smoothed_speed + 0.35 * instant_speed)
+                                speed_str = f"{format_size(smoothed_speed)}/s"
 
                                 if total_size and total_size > 0:
                                     pct = min(100.0, (downloaded_bytes / total_size) * 100)
@@ -746,7 +752,7 @@ class SyncWorker(threading.Thread):
 class FailedItemsDialog(tk.Toplevel):
     def __init__(self, parent, failed_items, course_dirs):
         super().__init__(parent)
-        self.title("Sync-My-DTULearn v1.1.0 - Sync Issues Review")
+        self.title("Sync-My-DTULearn v1.1.1 - Sync Issues Review")
         self.geometry("720x460")
         self.minsize(580, 360)
         self.transient(parent)
@@ -876,7 +882,7 @@ class FailedItemsDialog(tk.Toplevel):
 class DTUSyncApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Sync-My-DTULearn v1.1.0")
+        self.title("Sync-My-DTULearn v1.1.1")
         self.geometry("780x760")
         self.minsize(680, 580)
 

@@ -12,9 +12,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import urllib.request
 
-# --- Configuration: Replace with your actual GitHub repo details ---
-GITHUB_OWNER = "jonas-m-w"  # <--- Change this to your GitHub username
-GITHUB_REPO = "sync-my-dtulearn"         # <--- Change this to your repo name
+# --- Configuration ---
+GITHUB_OWNER = "jonas-m-w"
+GITHUB_REPO = "sync-my-dtulearn"
 APP_NAME = "Sync-My-DTULearn"
 ZIP_NAME = "Sync-My-DTULearn_Windows.zip"
 EXE_NAME = "Sync-My-DTULearn.exe"
@@ -34,9 +34,6 @@ def get_stored_install_path():
                     return path
         except Exception:
             pass
-    # Fallback to default directory if existing
-    if os.path.exists(DEFAULT_INSTALL_DIR):
-        return DEFAULT_INSTALL_DIR
     return DEFAULT_INSTALL_DIR
 
 
@@ -76,12 +73,32 @@ def create_desktop_shortcut(target_exe, shortcut_name):
         pass
 
 
+def get_icon_path():
+    candidates = [
+        os.path.join(getattr(sys, "_MEIPASS", ""), "app_icon.ico"),
+        os.path.join(os.path.dirname(sys.executable), "app_icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "app_icon.ico"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+
 class InstallerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} - Setup & Update")
         self.geometry("540x320")
         self.resizable(False, False)
+
+        icon_path = get_icon_path()
+        if icon_path:
+            try:
+                self.iconbitmap(default=icon_path)
+            except Exception:
+                pass
 
         self.detected_path = get_stored_install_path()
         self.var_dir = tk.StringVar(value=self.detected_path)
@@ -108,7 +125,6 @@ class InstallerApp(tk.Tk):
         )
         lbl_desc.pack(anchor="w", pady=(0, 15))
 
-        # Target Folder Frame
         folder_frame = ttk.LabelFrame(frame, text="Installation Location", padding="10")
         folder_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -118,18 +134,15 @@ class InstallerApp(tk.Tk):
         btn_browse = ttk.Button(folder_frame, text="Browse...", command=self.browse_folder)
         btn_browse.pack(side=tk.RIGHT)
 
-        # Options
         cb_shortcut = ttk.Checkbutton(frame, text="Create Desktop Shortcut", variable=self.var_shortcut)
         cb_shortcut.pack(anchor="w", pady=(0, 15))
 
-        # Progress & Status
         self.lbl_status = ttk.Label(frame, text="Ready.", font=("Helvetica", 9, "italic"))
         self.lbl_status.pack(anchor="w", pady=(0, 4))
 
         self.progress = ttk.Progressbar(frame, orient=tk.HORIZONTAL, mode="determinate")
         self.progress.pack(fill=tk.X, pady=(0, 15))
 
-        # Actions
         btn_box = ttk.Frame(frame)
         btn_box.pack(fill=tk.X)
 
@@ -158,60 +171,44 @@ class InstallerApp(tk.Tk):
         zip_temp_path = os.path.join(os.environ.get("TEMP", os.getcwd()), ZIP_NAME)
 
         try:
-            # 1. Fetch latest release info from GitHub API
-            self.lbl_status.config(text="Querying GitHub for latest release...")
-            api_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-            req = urllib.request.Request(api_url, headers={"User-Agent": "SyncDTU-Installer"})
-            
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                release_data = json.loads(resp.read().decode("utf-8"))
+            # 1. Download Latest Release directly via static CDN redirect (NO API RATE LIMIT)
+            download_url = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest/download/{ZIP_NAME}"
+            self.lbl_status.config(text="Connecting to GitHub...")
 
-            download_url = None
-            tag_name = release_data.get("tag_name", "latest")
-            for asset in release_data.get("assets", []):
-                if asset.get("name") == ZIP_NAME:
-                    download_url = asset.get("browser_download_url")
-                    break
+            opener = urllib.request.build_opener()
+            opener.addheaders = [("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")]
+            urllib.request.install_opener(opener)
 
-            if not download_url:
-                raise RuntimeError(f"Could not find '{ZIP_NAME}' attached to GitHub release {tag_name}.")
-
-            # 2. Download Release Archive with Progress
-            self.lbl_status.config(text=f"Downloading {tag_name}...")
-            
             def report_progress(block_num, block_size, total_size):
                 if total_size > 0:
                     percent = min(100.0, (block_num * block_size / total_size) * 100)
                     self.progress["value"] = percent
                     mb_curr = (block_num * block_size) / (1024 * 1024)
                     mb_tot = total_size / (1024 * 1024)
-                    self.lbl_status.config(text=f"Downloading {tag_name}: {mb_curr:.1f} MB / {mb_tot:.1f} MB ({percent:.0f}%)")
+                    self.lbl_status.config(text=f"Downloading latest release: {mb_curr:.1f} MB / {mb_tot:.1f} MB ({percent:.0f}%)")
 
             urllib.request.urlretrieve(download_url, zip_temp_path, reporthook=report_progress)
 
-            # 3. Stop running processes
-            self.lbl_status.config(text="Closing existing processes...")
+            # 2. Stop running instances
+            self.lbl_status.config(text="Closing existing instances...")
             kill_running_process()
 
-            # 4. Remove previous version directory
+            # 3. Clean previous binaries
             if os.path.exists(target_dir):
-                self.lbl_status.config(text="Removing previous installation files...")
-                # Note: Personal course downloads and session tokens live outside this folder (~/)
+                self.lbl_status.config(text="Removing previous version files...")
                 shutil.rmtree(target_dir, ignore_errors=True)
 
             os.makedirs(target_dir, exist_ok=True)
 
-            # 5. Extract New Version
-            self.lbl_status.config(text="Extracting new version...")
+            # 4. Extract archive
+            self.lbl_status.config(text="Extracting program files...")
             with zipfile.ZipFile(zip_temp_path, "r") as zip_ref:
                 zip_ref.extractall(target_dir)
 
-            # Clean temporary archive
             if os.path.exists(zip_temp_path):
                 os.remove(zip_temp_path)
 
-            # 6. Locate Executable & Setup Shortcut
-            # Check if extracted files are nested inside a subfolder or root
+            # 5. Locate executable and set up Desktop shortcut
             exe_path = os.path.join(target_dir, EXE_NAME)
             if not os.path.exists(exe_path):
                 for root, dirs, files in os.walk(target_dir):
@@ -229,7 +226,7 @@ class InstallerApp(tk.Tk):
 
             launch = messagebox.askyesno(
                 "Update Complete",
-                f"Successfully updated to {tag_name}!\n\nWould you like to launch {APP_NAME} now?"
+                f"Successfully installed the latest version!\n\nWould you like to launch {APP_NAME} now?"
             )
             if launch and os.path.exists(exe_path):
                 subprocess.Popen([exe_path], cwd=os.path.dirname(exe_path))

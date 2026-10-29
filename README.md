@@ -56,7 +56,7 @@ Data protection and account safety are core design priorities of this applicatio
 
 The easiest way to install, update, and manage Sync-My-DTULearn without managing ZIP files or manual extractions:
 
-1. Go to the [Releases](https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/releases/latest) page.
+1. Go to the [Releases](https://github.com/jonas-m-w/sync-my-dtulearn/releases/latest) page.
 2. Download **`Sync-My-DTULearn-Setup.exe`**.
 3. Run the installer:
    - Select your preferred installation directory (defaults to `%LOCALAPPDATA%\Programs\Sync-My-DTULearn`).
@@ -70,7 +70,7 @@ The easiest way to install, update, and manage Sync-My-DTULearn without managing
 
 If you prefer not to use an installer and want a portable executable:
 
-1. Navigate to the [Releases](https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/releases/latest) page.
+1. Navigate to the [Releases](https://github.com/jonas-m-w/sync-my-dtulearn/releases/latest) page.
 2. Download **`Sync-My-DTULearn_Windows.zip`**.
 3. Extract the ZIP archive to a folder of your choice (e.g. `C:\Users\<You>\AppData\Local\Programs\Sync-My-DTULearn`).
 4. Double-click **`Sync-My-DTULearn.exe`** to start.
@@ -102,8 +102,8 @@ For developers or users who prefer running the Python scripts directly:
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git
-   cd YOUR_REPO_NAME
+   git clone https://github.com/jonas-m-w/sync-my-dtulearn.git
+   cd sync-my-dtulearn
    ```
 2. Create and activate a virtual environment:
    ```bash

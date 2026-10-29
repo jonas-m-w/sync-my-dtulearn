@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Jonas
+# Copyright (C) 2026 Jonas Westphal
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License.
@@ -212,7 +212,7 @@ def get_authenticated_session():
 def run_login_popup():
     """Runs when the executable or script is launched with --login."""
     window = webview.create_window(
-        title="Sync-My-DTULearn v1.1.1 - Sign In",
+        title="Sync-My-DTULearn v1.1.2 - Sign In",
         url="https://learn.inside.dtu.dk/d2l/home",
         width=850,
         height=720,
@@ -698,7 +698,6 @@ class SyncWorker(threading.Thread):
                 smoothed_speed = 0.0
 
                 with open(part_path, "wb") as f:
-                    # Optimized to 128 KB chunks to maximize throughput and minimize CPU overhead
                     for chunk in r.iter_content(chunk_size=131072):
                         if self.cancel_event.is_set():
                             f.close()
@@ -710,13 +709,10 @@ class SyncWorker(threading.Thread):
                             downloaded_bytes += len(chunk)
 
                             now = time.time()
-                            # Throttle updates to ~0.2s for clean UI response
                             if now - last_update_time >= 0.2:
                                 delta_time = now - last_update_time
                                 delta_bytes = downloaded_bytes - last_downloaded_bytes
                                 instant_speed = delta_bytes / delta_time if delta_time > 0 else 0
-                                
-                                # Exponential Moving Average to prevent artificial rate-drop readings
                                 smoothed_speed = instant_speed if smoothed_speed == 0 else (0.65 * smoothed_speed + 0.35 * instant_speed)
                                 speed_str = f"{format_size(smoothed_speed)}/s"
 
@@ -748,11 +744,133 @@ class SyncWorker(threading.Thread):
             return False, str(e), None
 
 
+# ----------------- Dialog: Review & Modify Previously Ignored Items -----------------
+class IgnoredItemsReviewDialog(tk.Toplevel):
+    def __init__(self, parent, ignored_items):
+        super().__init__(parent)
+        self.title("Sync-My-DTULearn v1.1.2 - Review Ignored Files")
+        self.geometry("720x460")
+        self.minsize(580, 360)
+        self.transient(parent)
+        self.grab_set()
+
+        icon_path = get_app_icon_path()
+        if icon_path:
+            try:
+                self.iconbitmap(icon_path)
+            except Exception:
+                pass
+
+        self.ignored_items = ignored_items
+        self.check_vars = {}
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        header_frame = ttk.Frame(self, padding="10")
+        header_frame.pack(fill=tk.X)
+
+        lbl_title = ttk.Label(
+            header_frame,
+            text="Currently Ignored Files in Download Directory:",
+            font=("Helvetica", 10, "bold")
+        )
+        lbl_title.pack(anchor="w")
+
+        lbl_desc = ttk.Label(
+            header_frame,
+            text="Uncheck items that you want to re-enable (un-ignore) so they will download during the next sync:",
+            font=("Helvetica", 9)
+        )
+        lbl_desc.pack(anchor="w", pady=(3, 0))
+
+        btn_box = ttk.Frame(self, padding="10 5")
+        btn_box.pack(fill=tk.X)
+
+        ttk.Button(btn_box, text="Keep All Ignored", command=self.select_all).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(btn_box, text="Un-ignore All", command=self.deselect_all).pack(side=tk.LEFT)
+
+        list_container = ttk.Frame(self, padding="10")
+        list_container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(list_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        for idx, item in enumerate(self.ignored_items):
+            var = tk.BooleanVar(value=True)
+            self.check_vars[idx] = (var, item)
+
+            item_frame = ttk.Frame(scroll_frame, padding="2 4")
+            item_frame.pack(fill=tk.X, anchor="w")
+
+            cb = ttk.Checkbutton(item_frame, variable=var)
+            cb.pack(side=tk.LEFT, padx=(0, 5))
+
+            txt_label = f"[{item['course_folder']}] {item['title']}"
+            lbl = tk.Label(item_frame, text=txt_label, fg="#2563eb", font=("Consolas", 8), anchor="w", justify=tk.LEFT)
+            lbl.pack(side=tk.LEFT, fill=tk.X)
+
+        bottom_frame = ttk.Frame(self, padding="10")
+        bottom_frame.pack(fill=tk.X)
+
+        ttk.Button(bottom_frame, text="Save Changes", command=self.save_changes).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(bottom_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+
+    def select_all(self):
+        for var, _ in self.check_vars.values():
+            var.set(True)
+
+    def deselect_all(self):
+        for var, _ in self.check_vars.values():
+            var.set(False)
+
+    def save_changes(self):
+        unignored_count = 0
+        manifests_to_update = {}
+
+        for var, item in self.check_vars.values():
+            if not var.get():
+                m_path = item["manifest_path"]
+                if m_path not in manifests_to_update:
+                    try:
+                        with open(m_path, "r", encoding="utf-8") as f:
+                            manifests_to_update[m_path] = json.load(f)
+                    except Exception:
+                        manifests_to_update[m_path] = {}
+
+                topic_id = item["topic_id"]
+                manifest = manifests_to_update[m_path]
+                if topic_id in manifest:
+                    del manifest[topic_id]
+                    unignored_count += 1
+
+        for m_path, updated_manifest in manifests_to_update.items():
+            try:
+                with open(m_path, "w", encoding="utf-8") as f:
+                    json.dump(updated_manifest, f, indent=2)
+            except Exception:
+                pass
+
+        if unignored_count > 0:
+            messagebox.showinfo("Ignored List Updated", f"{unignored_count} item(s) un-ignored. They will download on your next sync.")
+        else:
+            messagebox.showinfo("No Changes", "No files were un-ignored.")
+        self.destroy()
+
+
 # ----------------- Dialog: Failed Items Review & Ignore -----------------
 class FailedItemsDialog(tk.Toplevel):
     def __init__(self, parent, failed_items, course_dirs):
         super().__init__(parent)
-        self.title("Sync-My-DTULearn v1.1.1 - Sync Issues Review")
+        self.title("Sync-My-DTULearn v1.1.2 - Sync Issues Review")
         self.geometry("720x460")
         self.minsize(580, 360)
         self.transient(parent)
@@ -882,7 +1000,7 @@ class FailedItemsDialog(tk.Toplevel):
 class DTUSyncApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Sync-My-DTULearn v1.1.1")
+        self.title("Sync-My-DTULearn v1.1.2")
         self.geometry("780x760")
         self.minsize(680, 580)
 
@@ -957,9 +1075,9 @@ class DTUSyncApp(tk.Tk):
         self.btn_login = ttk.Button(toolbar, text="Log In to DTU Learn", command=self.trigger_login)
         self.btn_login.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Status Badge & Manual Check Button Frame
+        # Status Badge Frame
         status_badge_frame = ttk.Frame(toolbar)
-        status_badge_frame.pack(side=tk.LEFT, padx=(0, 15))
+        status_badge_frame.pack(side=tk.LEFT, padx=(0, 10))
 
         self.lbl_auth_badge = tk.Label(
             status_badge_frame,
@@ -973,10 +1091,19 @@ class DTUSyncApp(tk.Tk):
         self.btn_check_auth = ttk.Button(
             status_badge_frame,
             text="Check Status",
-            width=12,
+            width=11,
             command=self.trigger_manual_auth_check
         )
-        self.btn_check_auth.pack(side=tk.LEFT, padx=(5, 0))
+        self.btn_check_auth.pack(side=tk.LEFT, padx=(4, 0))
+
+        # Review and un-ignore previously ignored files
+        self.btn_review_ignored = ttk.Button(
+            toolbar,
+            text="Ignored Files",
+            width=13,
+            command=self.open_ignored_review_dialog
+        )
+        self.btn_review_ignored.pack(side=tk.LEFT, padx=(0, 10))
 
         # Start & Stop Buttons
         self.btn_sync = ttk.Button(toolbar, text="Start Sync", command=self.start_sync)
@@ -1043,6 +1170,44 @@ class DTUSyncApp(tk.Tk):
             self.var_dir.set(chosen)
             self.config_data["target_dir"] = chosen
             save_config(self.config_data)
+
+    def open_ignored_review_dialog(self):
+        """Scans all course manifests in the target directory for ignored items and opens the review dialog."""
+        target_dir = self.var_dir.get().strip() or DEFAULT_TARGET_DIR
+        if not os.path.exists(target_dir):
+            messagebox.showinfo("Ignored Files", "Download directory does not exist yet. Run a sync first.")
+            return
+
+        ignored_items = []
+        try:
+            for item in os.listdir(target_dir):
+                course_path = os.path.join(target_dir, item)
+                if not os.path.isdir(course_path):
+                    continue
+                m_path = os.path.join(course_path, ".sync_manifest.json")
+                if os.path.isfile(m_path):
+                    try:
+                        with open(m_path, "r", encoding="utf-8") as f:
+                            manifest = json.load(f)
+                        for topic_id, data in manifest.items():
+                            if isinstance(data, dict) and data.get("ignored", False):
+                                ignored_items.append({
+                                    "course_folder": item,
+                                    "topic_id": topic_id,
+                                    "title": data.get("title", f"Topic #{topic_id}"),
+                                    "manifest_path": m_path,
+                                })
+                    except Exception:
+                        pass
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed scanning course manifests:\n{e}")
+            return
+
+        if not ignored_items:
+            messagebox.showinfo("Ignored Files", "There are currently no files marked as ignored in your download folders.")
+            return
+
+        IgnoredItemsReviewDialog(self, ignored_items)
 
     def trigger_manual_auth_check(self):
         self.btn_check_auth.config(state=tk.DISABLED)

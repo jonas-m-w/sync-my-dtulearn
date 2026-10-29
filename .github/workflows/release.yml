@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pywebview pythonnet clr-loader pyinstaller
 
-      - name: Build Standalone Executable
+      - name: Build Standalone Application
         run: |
           pyinstaller --noconfirm --onedir --windowed `
             --name "Sync-My-DTULearn" `
@@ -46,10 +46,19 @@ jobs:
         run: |
           Compress-Archive -Path dist/Sync-My-DTULearn/* -DestinationPath Sync-My-DTULearn_Windows.zip
 
+      - name: Build Standalone Installer
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "Sync-My-DTULearn-Setup" `
+            --icon "assets/app_icon.ico" `
+            src/installer.py
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Sync-My-DTULearn_Windows.zip
+          files: |
+            Sync-My-DTULearn_Windows.zip
+            dist/Sync-My-DTULearn-Setup.exe
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
